@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.weight_norm as weightNorm
-
+import copy
 from torch.autograd import Variable
 import sys
 
@@ -98,6 +98,14 @@ class ResNet_wobn(nn.Module):
         self.fc = nn.Linear(512, num_outputs)
         self.relu_1 = TReLU()
 
+        self.conv12 = conv3x3(num_inputs, 64, 2)
+        self.layer12 = self._make_layer(block, 64, num_blocks[0], stride=2)
+        self.layer22 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer32 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer42 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.fc2 = nn.Linear(512, num_outputs)
+        self.relu_12 = TReLU()
+
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
@@ -109,6 +117,8 @@ class ResNet_wobn(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        z= copy.deepcopy(x)
+
         x = self.relu_1(self.conv1(x))
         x = self.layer1(x)
         x = self.layer2(x)
@@ -117,4 +127,14 @@ class ResNet_wobn(nn.Module):
         x = F.avg_pool2d(x, 4)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-        return x
+
+        y = self.relu_12(self.conv12(z))
+        y = self.layer12(y)
+        y = self.layer22(y)
+        y = self.layer32(y)
+        y = self.layer42(y)
+        y = F.avg_pool2d(y, 4)
+        y = y.view(y.size(0), -1)
+        y = self.fc2(y)
+
+        return x,y

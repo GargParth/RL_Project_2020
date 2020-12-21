@@ -104,14 +104,16 @@ class DDPG(object):
         merged_state = torch.cat([canvas0, canvas1, gt, (T + 1).float() / self.max_step, coord_], 1)
         # canvas0 is not necessarily added
         if target:
-            Q = self.critic_target(merged_state)
+            Q1,Q2 = self.critic_target(merged_state)
+            Q = torch.min(Q1, Q2)
             return (Q + gan_reward), gan_reward
         else:
-            Q = self.critic(merged_state)
+            Q1,Q2 = self.critic(merged_state)
             if self.log % 20 == 0:
-                self.writer.add_scalar('train/expect_reward', Q.mean(), self.log)
+                U = Q1.mean()+Q2.mean()
+                self.writer.add_scalar('train/expect_reward', U.mean(), self.log)
                 self.writer.add_scalar('train/gan_reward', gan_reward.mean(), self.log)
-            return (Q + gan_reward), gan_reward
+            return (Q1 + gan_reward),(Q2 + gan_reward), gan_reward
     
     def update_policy(self, lr):
         self.log += 1
@@ -132,16 +134,16 @@ class DDPG(object):
             target_q, _ = self.evaluate(next_state, next_action, True)
             target_q = self.discount * ((1 - terminal.float()).view(-1, 1)) * target_q
                 
-        cur_q, step_reward = self.evaluate(state, action)
+        cur_q1,cur_q2, step_reward = self.evaluate(state, action)
         target_q += step_reward.detach()
         
-        value_loss = criterion(cur_q, target_q)
+        value_loss = criterion(cur_q1, target_q)+criterion(cur_q2, target_q)
         self.critic.zero_grad()
         value_loss.backward(retain_graph=True)
         self.critic_optim.step()
 
         action = self.play(state)
-        pre_q, _ = self.evaluate(state.detach(), action)
+        pre_q, _, _ = self.evaluate(state.detach(), action)
         policy_loss = -pre_q.mean()
         self.actor.zero_grad()
         policy_loss.backward(retain_graph=True)
